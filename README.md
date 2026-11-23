@@ -101,6 +101,7 @@ Remote handling keeps the tool's safety guarantees:
 - writes are atomic: content goes to a `mktemp` file next to the target, then `mv` replaces it, so a dropped connection can't leave a half-written `.env`
 - the target's permissions are preserved (`stat -c` on Linux, `stat -f` on macOS/BSD remotes; `600` for newly created files)
 - output masking works exactly as for local files
+- hosts must match `[user@]host` made of letters, digits, `.`, `_`, `@`, `-` and must not start with `-`, so a file argument can never be parsed as an ssh option; prefix local paths that contain a colon with `./`
 
 ## Secret detection
 
