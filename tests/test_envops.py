@@ -307,6 +307,7 @@ FAKE_SSH = """\
 # forwards local stdin to the remote and discards whatever the session did
 # not consume. Callers that spawn ssh while holding piped data on inherited
 # stdin lose that data (the `set` regression this shim must reproduce).
+[ "$1" = "--" ] && shift
 echo "$1" >> "$FAKE_SSH_LOG"
 shift
 sh -c "$*"
@@ -413,4 +414,31 @@ class TestRemoteSSH:
     def test_local_paths_never_invoke_ssh(self, src, remote):
         result = remote('show', str(src))
         assert result.returncode == 0
+        assert not remote.log.exists()
+
+    @pytest.mark.parametrize('arg', [
+        '-oProxyCommand=touch pwned:x',
+        '-oProxyCommand=touch pwned:/x',
+        'host name:x',
+        'host;touch pwned:x',
+    ])
+    def test_invalid_remote_host_rejected_without_ssh(self, tmp_path, remote, arg):
+        for cmd in (['show', arg], ['list-keys', arg], ['copy', arg, str(tmp_path / 'd.env'), '--full']):
+            result = remote(*cmd)
+            assert result.returncode != 0
+            assert 'invalid remote host' in result.stderr
+        assert not remote.log.exists()
+        assert not (tmp_path / 'pwned').exists()
+
+    def test_ssh_host_passed_after_double_dash(self, src, remote):
+        result = remote('show', f'testhost:{src}')
+        assert result.returncode == 0
+        assert remote.log.read_text().splitlines()[0] == 'testhost'
+
+    def test_dot_slash_prefix_keeps_colon_paths_local(self, tmp_path, remote):
+        local = tmp_path / '-odd:name.env'
+        local.write_text('FOO=bar\n')
+        result = remote('show', './-odd:name.env')
+        assert result.returncode == 0
+        assert 'FOO=bar' in result.stdout
         assert not remote.log.exists()

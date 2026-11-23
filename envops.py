@@ -214,13 +214,18 @@ def upsert_pairs(path, pairs):
 
 
 # rsync/scp rule: a colon before the first slash marks a remote path
-REMOTE_PATH_RE = re.compile(r'^(?P<host>[^/]+):(?P<path>.+)$')
+REMOTE_PATH_RE = re.compile(r'^(?P<host>[^/:]+):(?P<path>.+)$')
+# [user@]host; a leading '-' would be parsed by ssh as an option
+# (e.g. -oProxyCommand=... runs a local command)
+REMOTE_HOST_RE = re.compile(r'^[A-Za-z0-9._@][A-Za-z0-9._@-]*$')
 
 
 class RemoteFile:
     """A file on a remote host, accessed over ssh with a Path-like interface."""
 
     def __init__(self, host, path):
+        if not REMOTE_HOST_RE.match(host):
+            raise ValueError(f'invalid remote host: {host!r}')
         self.host = host
         self.path = path
 
@@ -235,7 +240,7 @@ class RemoteFile:
         # by a preliminary ssh call before cmd_set ever reads it.
         if 'input' not in kwargs:
             kwargs.setdefault('stdin', subprocess.DEVNULL)
-        return subprocess.run(['ssh', self.host, command], capture_output=True, text=True, **kwargs)
+        return subprocess.run(['ssh', '--', self.host, command], capture_output=True, text=True, **kwargs)
 
     def is_file(self):
         return self._ssh(f'test -f {shlex.quote(self.path)}').returncode == 0
@@ -265,7 +270,13 @@ class RemoteFile:
 def resolve_path(arg):
     m = REMOTE_PATH_RE.match(arg)
     if m:
-        return RemoteFile(m.group('host'), m.group('path'))
+        host = m.group('host')
+        if not REMOTE_HOST_RE.match(host):
+            sys.exit(
+                f'error: invalid remote host {host!r} in {arg!r} '
+                '(prefix local paths containing a colon with ./)'
+            )
+        return RemoteFile(host, m.group('path'))
     return Path(arg)
 
 
